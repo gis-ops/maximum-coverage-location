@@ -35,11 +35,9 @@ SOFTWARE.
 
 
 import numpy as np
-from scipy.spatial import distance_matrix
-from gurobipy import *
-from scipy.spatial import ConvexHull
+from scipy.spatial import distance_matrix, ConvexHull
+import mip as mpy
 from shapely.geometry import Polygon, Point
-from numpy import random
 
 def generate_candidate_sites(points,M=100):
     '''
@@ -56,11 +54,12 @@ def generate_candidate_sites(points,M=100):
     min_x, min_y, max_x, max_y = poly.bounds
     sites = []
     while len(sites) < M:
-        random_point = Point([random.uniform(min_x, max_x),
-                             random.uniform(min_y, max_y)])
+        random_point = Point([np.random.uniform(min_x, max_x),
+                             np.random.uniform(min_y, max_y)])
         if (random_point.within(poly)):
             sites.append(random_point)
     return np.array([(p.x,p.y) for p in sites])
+
 
 def mclp(points,K,radius,M):
     """
@@ -89,39 +88,45 @@ def mclp(points,K,radius,M):
     mask1 = D<=radius
     D[mask1]=1
     D[~mask1]=0
+
     # Build model
-    m = Model()
+    m = mpy.Model()
     # Add variables
     x = {}
     y = {}
     for i in range(I):
-      y[i] = m.addVar(vtype=GRB.BINARY, name="y%d" % i)
+      y[i] = m.add_var(var_type=mpy.BINARY, name="y%d" % i)
     for j in range(J):
-      x[j] = m.addVar(vtype=GRB.BINARY, name="x%d" % j)
+      x[j] = m.add_var(var_type=mpy.BINARY, name="x%d" % j)
 
-    m.update()
+    #m.update()
     # Add constraints
-    m.addConstr(quicksum(x[j] for j in range(J)) == K)
+    m.add_constr(mpy.xsum(x[j] for j in range(J)) == K)
+    
 
     for i in range(I):
-        m.addConstr(quicksum(x[j] for j in np.where(D[i]==1)[0]) >= y[i])
+        m.add_constr(mpy.xsum(x[j] for j in np.where(D[i]==1)[0]) >= y[i])
 
-    m.setObjective(quicksum(y[i]for i in range(I)),GRB.MAXIMIZE)
-    m.setParam('OutputFlag', 0)
+    m.objective = mpy.maximize(mpy.xsum(y[i] for i in range(I)))
+    
+    #m.setParam('OutputFlag', 0)
+    
     m.optimize()
     end = time.time()
     print('----- Output -----')
     print('  Running time : %s seconds' % float(end-start))
-    print('  Optimal coverage points: %g' % m.objVal)
+    print('  Optimal coverage points: %g' % m.objective_value)
     
     solution = []
-    if m.status == GRB.Status.OPTIMAL:
-        for v in m.getVars():
-            # print v.varName,v.x
-            if v.x==1 and v.varName[0]=="x":
-               solution.append(int(v.varName[1:]))
+    if m.status == mpy.OptimizationStatus.OPTIMAL:
+        for v in m.vars:
+            #print(v.x)
+            if v.x==1 and v.name[0]=="x":
+               solution.append(int(v.name[1:]))
     opt_sites = sites[solution]
-    return opt_sites,m.objVal
+    return opt_sites,m.objective_value
+
+
 
 def plot_input(points):
     '''
@@ -149,6 +154,7 @@ def plot_result(points,opt_sites,radius):
         radius: the radius of circle
     '''
     from matplotlib import pyplot as plt
+    print(True)
     fig = plt.figure(figsize=(8,8))
     plt.scatter(points[:,0],points[:,1],c='C0')
     ax = plt.gca()
@@ -160,3 +166,4 @@ def plot_result(points,opt_sites,radius):
     ax.tick_params(axis='both',left=False, top=False, right=False,
                        bottom=False, labelleft=False, labeltop=False,
                        labelright=False, labelbottom=False)
+    plt.show()
