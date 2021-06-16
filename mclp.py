@@ -101,4 +101,3 @@ def mclp(points, sites, distance_matrix, K, max_distance):
                solution.append(int(v.name[1:]))
     opt_sites = sites[solution]
     return opt_sites, solution, m.objective_value
-
