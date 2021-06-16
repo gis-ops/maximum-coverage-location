@@ -35,79 +35,55 @@ SOFTWARE.
 
 
 import numpy as np
-from scipy.spatial import distance_matrix, ConvexHull
-import mip as mpy
-from shapely.geometry import Polygon, Point
-
-def generate_candidate_sites(points,M=100):
-    '''
-    Generate M candidate sites with the convex hull of a point set
-    Input:
-        points: a Numpy array with shape of (N,2)
-        M: the number of candidate sites to generate
-    Return:
-        sites: a Numpy array with shape of (M,2)
-    '''
-    hull = ConvexHull(points)
-    polygon_points = points[hull.vertices]
-    poly = Polygon(polygon_points)
-    min_x, min_y, max_x, max_y = poly.bounds
-    sites = []
-    while len(sites) < M:
-        random_point = Point([np.random.uniform(min_x, max_x),
-                             np.random.uniform(min_y, max_y)])
-        if (random_point.within(poly)):
-            sites.append(random_point)
-    return np.array([(p.x,p.y) for p in sites])
+from mip import *
 
 
-def mclp(points,K,radius,M):
+def mclp(points, sites, distance_matrix, K, max_distance):
     """
     Solve maximum covering location problem
     Input:
         points: input points, Numpy array in shape of [N,2]
+        sites: input sites, Numpy array in shape of [N,2]
+        distance_matrix: distance matrix Numpy array in shape of [N,2]
         K: the number of sites to select
-        radius: the radius of circle
-        M: the number of candidate sites, which will randomly generated inside
-        the ConvexHull wrapped by the polygon
+        max_distance: maximum distance a site can serve
     Return:
         opt_sites: locations K optimal sites, Numpy array in shape of [K,2]
         f: the optimal value of the objective function
     """
     print('----- Configurations -----')
     print('  Number of points %g' % points.shape[0])
-    print('  K %g' % K)
-    print('  Radius %g' % radius)
-    print('  M %g' % M)
+    print('  Number of sites %g' % sites.shape[0])
+    print('  Amount of sites to select %g' % K)
+    print('  Maximum distance (m) %g' % max_distance)
     import time
     start = time.time()
-    sites = generate_candidate_sites(points,M)
     J = sites.shape[0]
     I = points.shape[0]
-    D = distance_matrix(points,sites)
-    mask1 = D<=radius
-    D[mask1]=1
-    D[~mask1]=0
+
+    mask1 = distance_matrix<=max_distance
+    distance_matrix[mask1]=1
+    distance_matrix[~mask1]=0
 
     # Build model
-    m = mpy.Model()
+    m = mip.Model()
     # Add variables
     x = {}
     y = {}
     for i in range(I):
-      y[i] = m.add_var(var_type=mpy.BINARY, name="y%d" % i)
+      y[i] = m.add_var(var_type=mip.BINARY, name="y%d" % i)
     for j in range(J):
-      x[j] = m.add_var(var_type=mpy.BINARY, name="x%d" % j)
+      x[j] = m.add_var(var_type=mip.BINARY, name="x%d" % j)
 
     #m.update()
     # Add constraints
-    m.add_constr(mpy.xsum(x[j] for j in range(J)) == K)
+    m.add_constr(mip.xsum(x[j] for j in range(J)) == K)
     
 
     for i in range(I):
-        m.add_constr(mpy.xsum(x[j] for j in np.where(D[i]==1)[0]) >= y[i])
+        m.add_constr(mip.xsum(x[j] for j in np.where(distance_matrix[i]==1)[0]) >= y[i])
 
-    m.objective = mpy.maximize(mpy.xsum(y[i] for i in range(I)))
+    m.objective = mip.maximize(mip.xsum(y[i] for i in range(I)))
     
     #m.setParam('OutputFlag', 0)
     
@@ -118,52 +94,11 @@ def mclp(points,K,radius,M):
     print('  Optimal coverage points: %g' % m.objective_value)
     
     solution = []
-    if m.status == mpy.OptimizationStatus.OPTIMAL:
+    if m.status == mip.OptimizationStatus.OPTIMAL:
         for v in m.vars:
             #print(v.x)
             if v.x==1 and v.name[0]=="x":
                solution.append(int(v.name[1:]))
     opt_sites = sites[solution]
-    return opt_sites,m.objective_value
+    return opt_sites, solution, m.objective_value
 
-
-
-def plot_input(points):
-    '''
-    Plot the result
-    Input:
-        points: input points, Numpy array in shape of [N,2]
-        opt_sites: locations K optimal sites, Numpy array in shape of [K,2]
-        radius: the radius of circle
-    '''
-    from matplotlib import pyplot as plt
-    fig = plt.figure(figsize=(8,8))
-    plt.scatter(points[:,0],points[:,1],c='C0')
-    ax = plt.gca()
-    ax.axis('equal')
-    ax.tick_params(axis='both',left=False, top=False, right=False,
-                       bottom=False, labelleft=False, labeltop=False,
-                       labelright=False, labelbottom=False)
-
-def plot_result(points,opt_sites,radius):
-    '''
-    Plot the result
-    Input:
-        points: input points, Numpy array in shape of [N,2]
-        opt_sites: locations K optimal sites, Numpy array in shape of [K,2]
-        radius: the radius of circle
-    '''
-    from matplotlib import pyplot as plt
-    print(True)
-    fig = plt.figure(figsize=(8,8))
-    plt.scatter(points[:,0],points[:,1],c='C0')
-    ax = plt.gca()
-    plt.scatter(opt_sites[:,0],opt_sites[:,1],c='C1',marker='+')
-    for site in opt_sites:
-        circle = plt.Circle(site, radius, color='C1',fill=False,lw=2)
-        ax.add_artist(circle)
-    ax.axis('equal')
-    ax.tick_params(axis='both',left=False, top=False, right=False,
-                       bottom=False, labelleft=False, labeltop=False,
-                       labelright=False, labelbottom=False)
-    plt.show()
